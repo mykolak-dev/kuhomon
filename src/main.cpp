@@ -12,19 +12,27 @@
 
 // OTA updates
 #include <ESP8266httpUpdate.h>
-// Blynk
-#include <BlynkSimpleEsp8266.h>
 
 // Debounce
 #include <Bounce2.h> //https://github.com/thomasfredericks/Bounce2
 
 // JSON
-#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+#include <ArduinoJson.h> //https://github.com/bblanchon/ArduinoJson
+
+#include <ThingSpeak.h> //https://github.com/mathworks/thingspeak-arduino
+
+// ThingSpeak information
+char thingSpeakAddress [] = "api.thingspeak.com";
+char channelID [16] = "channelid";
+char readAPIKey [32] = "readapikey";
+char writeAPIKey [32]= "writeapikey";
+
+WiFiClient client;
 
 // GPIO Defines
 #define I2C_SDA 5 // D1 Orange
 #define I2C_SCL 4 // D2 Yellow
-#define HW_RESET 12
+#define HW_RESET 0 //0 - d3 flash button it was d6 12
 
 // Debounce interval in ms
 #define DEBOUNCE_INTERVAL 10
@@ -64,11 +72,6 @@ unsigned char response[7];
 // Pressure and temperature
 Adafruit_BME280 bme;
 
-// Blynk token
-char blynk_token[33] {"Blynk token"};
-char blynk_server[64] {"blynk-cloud.com"};
-const uint16_t blynk_port {8442};
-
 // Device Id
 char device_id[17] = "Device ID";
 const char fw_ver[17] = "0.1.0";
@@ -80,8 +83,8 @@ SimpleTimer timer;
 WiFiManager wifiManager;
 
 // Network credentials
-String ssid { "ku_" +  String(ESP.getChipId())};
-String pass {"ku_" + String(ESP.getFlashChipId()) };
+String ssid {"ku_" +  String(ESP.getChipId())};
+String pass {"ku_" + String(ESP.getFlashChipId())};
 
 //flag for saving data
 bool shouldSaveConfig = false;
@@ -175,11 +178,13 @@ void sendMeasurements() {
         printString("Getting CO2");
         readCO2();
 
-        // Send to server
-        Blynk.virtualWrite(V1, t);
-        Blynk.virtualWrite(V2, h);
-        Blynk.virtualWrite(V4, p);
-        Blynk.virtualWrite(V5, co2);
+        //Send to thingsspeak
+        ThingSpeak.setField( 1, tf );
+        ThingSpeak.setField( 2, hf );
+        ThingSpeak.setField( 3, co2 );
+        ThingSpeak.setField( 4, pf );
+
+        int writeSuccess = ThingSpeak.writeFields( atoi(channelID), writeAPIKey );
 
         // Write to debug console
         printString("H: " + String(hf) + "%");
@@ -323,8 +328,9 @@ bool loadConfig() {
 
         // Save parameters
         strcpy(device_id, json["device_id"]);
-        strcpy(blynk_server, json["blynk_server"]);
-        strcpy(blynk_token, json["blynk_token"]);
+        strcpy(channelID, json["channel_id"]);
+        strcpy(readAPIKey, json["read_api_key"]);
+        strcpy(writeAPIKey, json["write_api_key"]);
 }
 
 void configModeCallback (WiFiManager *wifiManager) {
@@ -345,11 +351,14 @@ void setupWiFi() {
 
         // Custom parameters
         WiFiManagerParameter custom_device_id("device_id", "Device name", device_id, 16);
-        WiFiManagerParameter custom_blynk_server("blynk_server", "Blynk server", blynk_server, 64);
-        WiFiManagerParameter custom_blynk_token("blynk_token", "Blynk token", blynk_token, 34);
-        wifiManager.addParameter(&custom_blynk_server);
-        wifiManager.addParameter(&custom_blynk_token);
         wifiManager.addParameter(&custom_device_id);
+
+        WiFiManagerParameter custom_channel_id("channel_id", "Channel ID", channelID, 16);
+        WiFiManagerParameter custom_read_api_key("read_api_key", "Read API key", readAPIKey, 32);
+        WiFiManagerParameter custom_write_api_key("write_api_key", "Write API key", writeAPIKey, 32);
+        wifiManager.addParameter(&custom_channel_id);
+        wifiManager.addParameter(&custom_read_api_key);
+        wifiManager.addParameter(&custom_write_api_key);
 
         // wifiManager.setTimeout(180);
         wifiManager.setAPCallback(configModeCallback);
@@ -364,8 +373,10 @@ void setupWiFi() {
                 DynamicJsonBuffer jsonBuffer;
                 JsonObject &json = jsonBuffer.createObject();
                 json["device_id"] = custom_device_id.getValue();
-                json["blynk_server"] = custom_blynk_server.getValue();
-                json["blynk_token"] = custom_blynk_token.getValue();
+
+                json["channel_id"] = custom_channel_id.getValue();
+                json["read_api_key"] = custom_read_api_key.getValue();
+                json["write_api_key"] = custom_write_api_key.getValue();
 
 
                 File configFile = SPIFFS.open("/config.json", "w");
@@ -384,37 +395,6 @@ void setupWiFi() {
 
         DEBUG_SERIAL.print("IP address: ");
         DEBUG_SERIAL.println(WiFi.localIP());
-}
-
-// Virtual pin update FW
-BLYNK_WRITE(V22) {
-        if (param.asInt() == 1) {
-                DEBUG_SERIAL.println("Got a FW update request");
-
-                char full_version[34] {""};
-                strcat(full_version, device_id);
-                strcat(full_version, "::");
-                strcat(full_version, fw_ver);
-
-                t_httpUpdate_return ret = ESPhttpUpdate.update("http://romfrom.space/get", full_version);
-                switch (ret) {
-                case HTTP_UPDATE_FAILED:
-                        DEBUG_SERIAL.println("[update] Update failed.");
-                        break;
-                case HTTP_UPDATE_NO_UPDATES:
-                        DEBUG_SERIAL.println("[update] Update no Update.");
-                        break;
-                case HTTP_UPDATE_OK:
-                        DEBUG_SERIAL.println("[update] Update ok.");
-                        break;
-                }
-
-        }
-}
-
-// Virtual pin reset settings
-BLYNK_WRITE(V23) {
-        factoryReset();
 }
 
 void setup() {
@@ -459,31 +439,17 @@ void setup() {
                 DEBUG_SERIAL.println("Config loaded");
         }
 
-        // Start blynk
-
-        Blynk.config(blynk_token, blynk_server, blynk_port);
-        DEBUG_SERIAL.print("blynk server: ");
-        DEBUG_SERIAL.println(  blynk_server );
-        DEBUG_SERIAL.print("port: " );
-        DEBUG_SERIAL.println(  blynk_port );
-        DEBUG_SERIAL.print("token: " );
-        DEBUG_SERIAL.println(  blynk_token  );
+        ThingSpeak.begin( client );
 
         drawBoot("Connecting...");
-        DEBUG_SERIAL.println("Connecting to blynk...");
-        while (Blynk.connect() == false) {
-          delay(500);
-          DEBUG_SERIAL.println("Connecting to blynk...");
-        }
 
         // Setup a function to be called every 10 second
-       timer.setInterval(10000L, sendMeasurements);
+       timer.setInterval(60000L, sendMeasurements);
 
-        sendMeasurements();
+       sendMeasurements();
 }
 
 void loop() {
-        Blynk.run();
         timer.run();
         draw();
 
