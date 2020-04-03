@@ -1,0 +1,21 @@
+[submodule "lib/Adafruit_BME280_Library"]
+	path = lib/Adafruit_BME280_Library
+	url = https://github.com/adafruit/Adafruit_BME280_Library
+[submodule "lib/Arduino"]
+	path = lib/Arduino
+	url = https://github.com/esp8266/Arduino
+[submodule "lib/ArduinoJson"]
+	path = lib/ArduinoJson
+	url = https://github.com/bblanchon/ArduinoJson
+[submodule "lib/Bounce2"]
+	path = lib/Bounce2
+	url = https://github.com/thomasfredericks/Bounce2
+[submodule "lib/WiFiManager"]
+	path = lib/WiFiManager
+	url = https://github.com/tzapu/WiFiManager
+[submodule "lib/thingspeak-arduino"]
+	path = lib/thingspeak-arduino
+	url = https://github.com/mathworks/thingspeak-arduino.git
+[submodule "lib/u8g2"]
+	path = lib/u8g2
+	url = https://github.com/olikraus/u8g2
