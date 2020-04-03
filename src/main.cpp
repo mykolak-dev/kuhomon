@@ -78,6 +78,7 @@ const char fw_ver[17] = "0.1.0";
 
 // Handy timer
 SimpleTimer timer;
+SimpleTimer wf_reconnect_timer;
 
 // Setup Wifi connection
 WiFiManager wifiManager;
@@ -120,7 +121,7 @@ void printString(String str) {
 void readCO2() {
         // CO2
         bool header_found {false};
-        char tries {0};
+        //char tries {0};
 
         SENSOR_SERIAL.write(cmd, 9);
         memset(response, 0, 7);
@@ -136,7 +137,7 @@ void readCO2() {
                 SENSOR_SERIAL.readBytes(response, 7);
 
                 byte crc = 0x86;
-                for (char i = 0; i < 6; i++) {
+                for (int i = 0; i < 6; i++) {
                         crc+=response[i];
                 }
                 crc = 0xff - crc;
@@ -181,10 +182,13 @@ void sendMeasurements() {
         //Send to thingsspeak
         ThingSpeak.setField( 1, tf );
         ThingSpeak.setField( 2, hf );
-        ThingSpeak.setField( 3, co2 );
+        if (co2 > -1) {
+                ThingSpeak.setField( 3, co2 );
+        }
         ThingSpeak.setField( 4, pf );
 
-        int writeSuccess = ThingSpeak.writeFields( atoi(channelID), writeAPIKey );
+        //int writeSuccess = 
+        ThingSpeak.writeFields( atoi(channelID), writeAPIKey );
 
         // Write to debug console
         printString("H: " + String(hf) + "%");
@@ -200,6 +204,8 @@ void loading() {
         memset(&loader[count], 0, 1);
 }
 
+// Cycle other meauserments
+String measurement {"..."};
 void draw() {
         u8g2.clearBuffer();
 
@@ -226,14 +232,10 @@ void draw() {
                 u8g2.drawStr(x, y, loader);
         }
 
-        // Cycle other meauserments
-        String measurement {"..."};
-        const char degree {176};
-
         // Switch every 3 seconds
         switch((millis() / 3000) % 3) {
         case 0:
-                if (t > -100) { measurement = "T: " + String(t) + degree + "C"; }
+                if (t > -100) { measurement = "T: " + String(t) + "C"; }
                 break;
         case 1:
                 if (h > -1) { measurement = "H: " + String(h) + "%"; }
@@ -242,8 +244,8 @@ void draw() {
                 if (p > -1) { measurement =  "P: " + String(p) + " mmHg"; }
         }
 
-        char measurementa [12];
-        measurement.toCharArray(measurementa, 12);
+        char measurementa [14];
+        measurement.toCharArray(measurementa, 14);
 
         u8g2.setFont(u8g2_font_9x18_mf);
         x = (128 - u8g2.getStrWidth(measurementa))/2;
@@ -318,19 +320,20 @@ bool loadConfig() {
         // use configFile.readString instead.
         configFile.readBytes(buf.get(), size);
 
-        StaticJsonBuffer<200> jsonBuffer;
-        JsonObject &json = jsonBuffer.parseObject(buf.get());
+        StaticJsonDocument<200> doc;
+        auto error = deserializeJson(doc, buf.get());
 
-        if (!json.success()) {
+        if (error) {
                 DEBUG_SERIAL.println("Failed to parse config file");
                 return false;
         }
 
         // Save parameters
-        strcpy(device_id, json["device_id"]);
-        strcpy(channelID, json["channel_id"]);
-        strcpy(readAPIKey, json["read_api_key"]);
-        strcpy(writeAPIKey, json["write_api_key"]);
+        strcpy(device_id, doc["device_id"]);
+        strcpy(channelID, doc["channel_id"]);
+        strcpy(readAPIKey, doc["read_api_key"]);
+        strcpy(writeAPIKey, doc["write_api_key"]);
+        return true;
 }
 
 void configModeCallback (WiFiManager *wifiManager) {
@@ -360,7 +363,7 @@ void setupWiFi() {
         wifiManager.addParameter(&custom_read_api_key);
         wifiManager.addParameter(&custom_write_api_key);
 
-        // wifiManager.setTimeout(180);
+        wifiManager.setTimeout(20);
         wifiManager.setAPCallback(configModeCallback);
 
         if (!wifiManager.autoConnect(ssid.c_str(), pass.c_str())) {
@@ -370,8 +373,8 @@ void setupWiFi() {
         //save the custom parameters to FS
         if (shouldSaveConfig) {
                 DEBUG_SERIAL.println("saving config");
-                DynamicJsonBuffer jsonBuffer;
-                JsonObject &json = jsonBuffer.createObject();
+                DynamicJsonDocument doc(1024);
+                JsonObject json = doc.to<JsonObject>();
                 json["device_id"] = custom_device_id.getValue();
 
                 json["channel_id"] = custom_channel_id.getValue();
@@ -383,9 +386,8 @@ void setupWiFi() {
                 if (!configFile) {
                         DEBUG_SERIAL.println("failed to open config file for writing");
                 }
-
-                json.printTo(DEBUG_SERIAL);
-                json.printTo(configFile);
+                serializeJson(doc, DEBUG_SERIAL);
+                serializeJson(doc, configFile);
                 configFile.close();
                 //end save
         }
@@ -456,5 +458,5 @@ void loop() {
         hwReset.update();
         if (hwReset.fell()) {
            factoryReset();
-         }
+        }
 }
