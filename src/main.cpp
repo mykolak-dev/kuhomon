@@ -60,7 +60,7 @@ byte y {0};
 // SW Serial
 #include <SoftwareSerial.h>
 
-SoftwareSerial swSer(13, 15, false, 256); // GPIO15 (TX) and GPIO13 (RX)
+SoftwareSerial swSer(13, 15, false); // GPIO15 (TX) and GPIO13 (RX)
 
 // CO2 SERIAL
 #define DEBUG_SERIAL Serial
