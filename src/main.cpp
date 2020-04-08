@@ -45,6 +45,9 @@ Bounce hwReset {Bounce()};
 
 #include <Wire.h>
 
+#include <RtcDS3231.h> //https://github.com/Makuna/Rtc.git
+RtcDS3231<TwoWire> Rtc(Wire);
+
 // Pressure and Temperature
 
 // Use U8g2 for i2c OLED Lib
@@ -116,6 +119,23 @@ void factoryReset() {
 
 void printString(String str) {
         DEBUG_SERIAL.println(str);
+}
+
+#define countof(a) (sizeof(a) / sizeof(a[0]))
+void printDateTime(const RtcDateTime& dt)
+{
+    char datestring[20];
+
+    snprintf_P(datestring, 
+            countof(datestring),
+            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),            
+            dt.Day(),
+            dt.Month(),
+            dt.Year(),
+            dt.Hour(),
+            dt.Minute(),
+            dt.Second() );
+    DEBUG_SERIAL.print(datestring);
 }
 
 void readCO2() {
@@ -195,6 +215,16 @@ void sendMeasurements() {
         printString("T: " + String(tf) + "C");
         printString("P: " + String(pf) + "mmHg");
         printString("CO2: " + String(co2) + "ppm");
+
+        RtcDateTime now = Rtc.GetDateTime();
+        printDateTime(now);
+        DEBUG_SERIAL.println();
+
+        RtcTemperature temp = Rtc.GetTemperature();
+        temp.Print(DEBUG_SERIAL);
+        // you may also get the temperature as a float and print it
+        // Serial.print(temp.AsFloatDegC());
+        DEBUG_SERIAL.println("C");
 }
 
 
@@ -208,6 +238,7 @@ void loading() {
 String measurement {"..."};
 void draw() {
         u8g2.clearBuffer();
+        char datestring[20];
 
         // CO2
         if (co2 > -1) {
@@ -232,6 +263,19 @@ void draw() {
                 u8g2.drawStr(x, y, loader);
         }
 
+        RtcDateTime now = Rtc.GetDateTime();
+        snprintf_P(datestring, 
+                countof(datestring),
+                PSTR("%02u/%02u %02u:%02u:%02u"),            
+                now.Day(),
+                now.Month(),
+                now.Hour(),
+                now.Minute(),
+                now.Second() );
+        u8g2.setFont(u8g2_font_6x12_mf);
+        x = (128 - u8g2.getStrWidth(datestring)) / 2;
+        y = y + 12;
+        u8g2.drawStr(x, y, datestring);
         // Switch every 3 seconds
         switch((millis() / 3000) % 3) {
         case 0:
@@ -399,6 +443,76 @@ void setupWiFi() {
         DEBUG_SERIAL.println(WiFi.localIP());
 }
 
+void setup_rtc () 
+{
+    DEBUG_SERIAL.print("compiled: ");
+    DEBUG_SERIAL.print(__DATE__);
+    DEBUG_SERIAL.println(__TIME__);
+
+    //--------RTC SETUP ------------
+    // if you are using ESP-01 then uncomment the line below to reset the pins to
+    // the available pins for SDA, SCL
+    // Wire.begin(0, 2); // due to limited pins, use pin 0 and 2 for SDA, SCL
+    
+    Rtc.Begin();
+
+    RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+    printDateTime(compiled);
+    DEBUG_SERIAL.println();
+
+    if (!Rtc.IsDateTimeValid()) 
+    {
+        if (Rtc.LastError() != 0)
+        {
+            // we have a communications error
+            // see https://www.arduino.cc/en/Reference/WireEndTransmission for 
+            // what the number means
+            DEBUG_SERIAL.print("RTC communications error = ");
+            DEBUG_SERIAL.println(Rtc.LastError());
+        }
+        else
+        {
+            // Common Causes:
+            //    1) first time you ran and the device wasn't running yet
+            //    2) the battery on the device is low or even missing
+
+            DEBUG_SERIAL.println("RTC lost confidence in the DateTime!");
+
+            // following line sets the RTC to the date & time this sketch was compiled
+            // it will also reset the valid flag internally unless the Rtc device is
+            // having an issue
+
+            Rtc.SetDateTime(compiled);
+        }
+    }
+
+    if (!Rtc.GetIsRunning())
+    {
+        DEBUG_SERIAL.println("RTC was not actively running, starting now");
+        Rtc.SetIsRunning(true);
+    }
+
+    RtcDateTime now = Rtc.GetDateTime();
+    if (now < compiled) 
+    {
+        DEBUG_SERIAL.println("RTC is older than compile time!  (Updating DateTime)");
+        Rtc.SetDateTime(compiled);
+    }
+    else if (now > compiled) 
+    {
+        DEBUG_SERIAL.println("RTC is newer than compile time. (this is expected)");
+    }
+    else if (now == compiled) 
+    {
+        DEBUG_SERIAL.println("RTC is the same as compile time! (not expected but all is fine)");
+    }
+
+    // never assume the Rtc was last configured by you, so
+    // just clear them to your needed state
+    Rtc.Enable32kHzPin(false);
+    Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone); 
+}
+
 void setup() {
         // Init serial ports
         DEBUG_SERIAL.begin(115200);
@@ -416,6 +530,8 @@ void setup() {
         u8g2.begin();
         drawBoot();
 
+        
+        setup_rtc();
 
         // Init Pressure/Temperature sensor
         if (!bme.begin(0x76)) {
