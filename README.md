@@ -1,6 +1,7 @@
-# Kumekay Home Monitoring Device
+# Mykolak Home Monitoring Device
 
-System for measurement CO2/Humidity/Temperature/Pressure with OLED display and data upload through WiFi
+System for measurement CO2/Humidity/Temperature/Pressure with OLED display and data upload through WiFi.
+ThingsSpeak used as UI.
 
 ## Components
 
@@ -8,14 +9,8 @@ System for measurement CO2/Humidity/Temperature/Pressure with OLED display and d
 - ESP8266 (NodeMCU ESP12+ based)
 - SSD1306 0.96" 128x64 i2c OLED. Library: <https://github.com/olikraus/u8g2>
 - Humidity/Pressure/Temperature BME280 i2c. Library: <https://github.com/adafruit/Adafruit_BME280_Library>
+- RTC ds3231.
 
-## Case
-
-Model for printing kuhomon_case.stl
 
 Known issues:
-- To fit system to this case you have to use short wires
-- Temperature measurements seems to be higher due to heat from ESP8266
 
-## TODO
-- Add offline support (show data on screen without WiFi)
